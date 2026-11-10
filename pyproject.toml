@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fm27data"
+version = "0.1.0"
+description = "Liest Daten aus Football Manager 27 Exporten automatisch aus, speichert sie in SQLite und stellt sie per Web-UI/CLI bereit."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+fm27data = "fm27data.cli:main"
+
+[tool.setuptools]
+packages = ["fm27data"]
+
+[tool.setuptools.package-data]
+fm27data = ["static/*"]

@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FM27 Datenzentrale</title>
+<style>
+  :root { --bg:#0f1720; --panel:#17212c; --line:#26323f; --text:#e6edf3; --muted:#8b98a5; --acc:#3fb950; --warn:#d29922; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--text); }
+  header { display:flex; gap:16px; align-items:center; padding:12px 20px; border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; z-index:2; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0 12px 0 0; }
+  nav button { background:none; border:1px solid var(--line); color:var(--text); padding:6px 12px; border-radius:6px; cursor:pointer; margin-right:4px; }
+  nav button.active { border-color:var(--acc); color:var(--acc); }
+  input, select { background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 8px; }
+  main { padding:16px 20px; }
+  .bar { display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+  .muted { color:var(--muted); }
+  table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; }
+  th, td { padding:5px 8px; border-bottom:1px solid var(--line); white-space:nowrap; text-align:left; }
+  th { position:sticky; top:0; background:var(--panel); cursor:pointer; user-select:none; font-weight:600; }
+  th.sorted { color:var(--acc); }
+  td.num { text-align:right; }
+  tr:hover td { background:#1c2833; }
+  .wrap { overflow:auto; max-height:calc(100vh - 170px); border:1px solid var(--line); border-radius:8px; }
+  .a1 { color:#f85149 } .a2 { color:var(--warn) } .a3 { color:var(--text) } .a4 { color:#56d364 } .a5 { color:#3fb950; font-weight:700 }
+  #drop { border:2px dashed var(--line); border-radius:8px; padding:24px; text-align:center; color:var(--muted); margin-bottom:16px; }
+  #drop.over { border-color:var(--acc); color:var(--acc); }
+  #log div { padding:2px 0; }
+  dialog { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:10px; max-width:900px; width:90vw; }
+  dialog::backdrop { background:rgba(0,0,0,.6); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(190px,1fr)); gap:4px 16px; }
+  .grid div { display:flex; justify-content:space-between; border-bottom:1px solid var(--line); padding:2px 0; }
+  a { color:var(--acc); }
+  button.small { background:none; border:1px solid var(--line); color:var(--muted); border-radius:4px; cursor:pointer; padding:2px 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚽ FM27 Datenzentrale</h1>
+  <nav id="tabs"></nav>
+  <span style="flex:1"></span>
+  <button class="small" onclick="showImports()">Importe</button>
+</header>
+<main>
+  <div id="drop">Exportdateien aus FM27 (.html, .txt, .rtf, .csv) hierher ziehen – oder einfach im überwachten Ordner speichern.</div>
+  <div id="log"></div>
+  <div class="bar">
+    <input id="q" placeholder="Suche (Name, Verein, …)" size="28">
+    <select id="filterKey"></select>
+    <input id="fmin" placeholder="min" size="6">
+    <input id="fmax" placeholder="max" size="6">
+    <span class="muted" id="count"></span>
+    <span style="flex:1"></span>
+    <a id="dlcsv" href="#">CSV</a> · <a id="dljson" href="#">JSON</a>
+  </div>
+  <div class="wrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
+  <div class="bar" style="margin-top:8px">
+    <button class="small" id="prev">◀</button><span class="muted" id="page"></span><button class="small" id="next">▶</button>
+  </div>
+</main>
+<dialog id="dlg"><div id="dlgBody"></div><p><button class="small" onclick="dlg.close()">Schließen</button></p></dialog>
+
+<script>
+const LABELS = { name:"Name", position:"Pos.", age:"Alter", club:"Verein", nationality:"Nat.", ca:"AF", pa:"PF",
+  value:"Wert", wage:"Gehalt", expires:"Vertrag", height:"Größe", weight:"Gewicht", avg_rating:"Ø-Note",
+  goals:"Tore", assists:"Vorl.", apps:"Eins.", personality:"Persönlichkeit", division:"Liga", uid:"UID", inf:"Info",
+  dob:"Geb.", preferred_foot:"Fuß", minutes:"Min.", xg:"xG", xa:"xA", points:"Pkt.", played:"Sp.", won:"S", drawn:"U", lost:"N",
+  goals_for:"Tore+", goals_against:"Tore−", goal_diff:"Diff.", pos_table:"Pl.", natural_fitness:"Grundfitness",
+  corners:"Ecken", crossing:"Flanken", dribbling:"Dribbling", finishing:"Abschluss", first_touch:"Ballannahme",
+  free_kicks:"Freistöße", heading:"Kopfball", long_shots:"Distanzsch.", long_throws:"Weite Einw.", marking:"Manndeckung",
+  passing:"Passen", penalty_taking:"Elfmeter", tackling:"Tackling", technique:"Technik", aggression:"Aggressivität",
+  anticipation:"Antizipation", bravery:"Mut", composure:"Nervenstärke", concentration:"Konzentration", decisions:"Entscheidungen",
+  determination:"Entschlossenheit", flair:"Flair", leadership:"Führung", off_the_ball:"Ohne Ball", positioning:"Stellungsspiel",
+  teamwork:"Teamgeist", vision:"Kreativität", work_rate:"Einsatzfreude", acceleration:"Antritt", agility:"Beweglichkeit",
+  balance_attr:"Balance", jumping_reach:"Sprungkraft", pace:"Schnelligkeit", stamina:"Ausdauer", strength:"Kraft",
+  aerial_reach:"Luftduelle", command_of_area:"Strafraumbeh.", communication:"Kommunikation", eccentricity:"Exzentrik",
+  handling:"Fangsicherheit", kicking:"Abschlag", one_on_ones:"1 gg. 1", punching:"Faustabwehr", reflexes:"Reflexe",
+  rushing_out:"Herauslaufen", throwing:"Abwurf", coaching_attacking:"Angriff", coaching_defending:"Verteidigung",
+  coaching_fitness:"Fitness", coaching_mental:"Mental", coaching_tactical:"Taktik", coaching_technical:"Technik",
+  judging_ability:"Fähigk. beurt.", judging_potential:"Potenz. beurt.", motivating:"Motivieren" };
+const state = { kind:null, sort:null, desc:true, offset:0, limit:200, columns:[] };
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function money(v) {
+  if (v == null) return "";
+  const n = Math.abs(v);
+  if (n >= 1e6) return (v/1e6).toLocaleString("de-DE",{maximumFractionDigits:1}) + " Mio.";
+  if (n >= 1e3) return (v/1e3).toLocaleString("de-DE",{maximumFractionDigits:0}) + " Tsd.";
+  return v.toLocaleString("de-DE");
+}
+const CUR = { EUR:"€", GBP:"£", USD:"$", CHF:"CHF" };
+function fmt(key, v) {
+  if (v == null) return ["", false];
+  if (typeof v === "object") {
+    const c = CUR[v.currency] ? " " + CUR[v.currency] : "";
+    if ("per_week" in v) return [money(v.per_week) + c + " p.W.", true];
+    if ("value" in v) return [(v.min !== v.max ? money(v.min) + " – " + money(v.max) : money(v.value)) + c, true];
+    return [v.text ?? "", false];
+  }
+  if (key === "height") return [v + " cm", true];
+  if (key === "weight") return [v + " kg", true];
+  return [typeof v === "number" ? v.toLocaleString("de-DE") : v, typeof v === "number"];
+}
+function attrClass(v) { return v >= 16 ? "a5" : v >= 13 ? "a4" : v >= 10 ? "a3" : v >= 6 ? "a2" : "a1"; }
+const ATTR_HINT = new Set(["corners","crossing","dribbling","finishing","first_touch","free_kicks","heading","long_shots","long_throws","marking","passing","penalty_taking","tackling","technique","aggression","anticipation","bravery","composure","concentration","decisions","determination","flair","leadership","off_the_ball","positioning","teamwork","vision","work_rate","acceleration","agility","balance_attr","jumping_reach","natural_fitness","pace","stamina","strength","aerial_reach","command_of_area","communication","eccentricity","handling","kicking","one_on_ones","punching","reflexes","rushing_out","throwing"]);
+
+async function api(path) { const r = await fetch(path); return r.json(); }
+
+async function loadKinds() {
+  const kinds = await api("/api/kinds");
+  const nav = $("#tabs"); nav.innerHTML = "";
+  if (!kinds.length) { nav.innerHTML = '<span class="muted">Noch keine Daten importiert</span>'; return; }
+  if (!state.kind || !kinds.find(k => k.kind === state.kind)) state.kind = kinds[0].kind;
+  for (const k of kinds) {
+    const b = document.createElement("button");
+    b.textContent = `${k.label} (${k.count})`;
+    if (k.kind === state.kind) b.className = "active";
+    b.onclick = () => { state.kind = k.kind; state.sort = null; state.offset = 0; loadKinds(); };
+    nav.appendChild(b);
+  }
+  state.columns = await api("/api/columns?kind=" + state.kind);
+  $("#filterKey").innerHTML = '<option value="">Filterfeld…</option>' + state.columns.map(c => `<option value="${c}">${LABELS[c]||c}</option>`).join("");
+  loadRows();
+}
+
+function query() {
+  const p = new URLSearchParams({ kind:state.kind, q:$("#q").value, limit:state.limit, offset:state.offset, desc:state.desc?"1":"0" });
+  if (state.sort) p.set("sort", state.sort);
+  const fk = $("#filterKey").value;
+  if (fk) { if ($("#fmin").value) p.set("min."+fk, $("#fmin").value); if ($("#fmax").value) p.set("max."+fk, $("#fmax").value); }
+  return p;
+}
+
+async function loadRows() {
+  if (!state.kind) return;
+  const { total, rows } = await api("/api/records?" + query());
+  const cols = state.columns;
+  $("#tbl thead").innerHTML = "<tr>" + cols.map(c => `<th data-c="${c}" class="${state.sort===c?"sorted":""}">${esc(LABELS[c]||c)}${state.sort===c?(state.desc?" ▼":" ▲"):""}</th>`).join("") + "</tr>";
+  $("#tbl tbody").innerHTML = rows.map(r => "<tr data-key=\"" + esc(r.entity_key) + "\">" + cols.map(c => {
+    const v = r.data[c]; const [t, num] = fmt(c, v);
+    const cls = (num ? "num " : "") + (ATTR_HINT.has(c) && typeof v === "number" ? attrClass(v) : "");
+    return `<td class="${cls}">${esc(t)}</td>`;
+  }).join("") + "</tr>").join("");
+  $("#count").textContent = `${total.toLocaleString("de-DE")} Einträge`;
+  $("#page").textContent = ` ${state.offset+1}–${Math.min(state.offset+state.limit,total)} `;
+  $("#prev").disabled = state.offset === 0; $("#next").disabled = state.offset + state.limit >= total;
+  $("#dlcsv").href = `/api/export?kind=${state.kind}&format=csv`;
+  $("#dljson").href = `/api/export?kind=${state.kind}&format=json`;
+}
+
+$("#tbl thead").addEventListener("click", e => {
+  const c = e.target.closest("th")?.dataset.c; if (!c) return;
+  if (state.sort === c) state.desc = !state.desc; else { state.sort = c; state.desc = !["name","club","nationality","position"].includes(c); }
+  state.offset = 0; loadRows();
+});
+$("#tbl tbody").addEventListener("click", e => { const tr = e.target.closest("tr"); if (tr) showHistory(tr.dataset.key); });
+let t; for (const id of ["#q","#fmin","#fmax"]) $(id).addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { state.offset = 0; loadRows(); }, 250); });
+$("#filterKey").onchange = () => { state.offset = 0; loadRows(); };
+$("#prev").onclick = () => { state.offset = Math.max(0, state.offset - state.limit); loadRows(); };
+$("#next").onclick = () => { state.offset += state.limit; loadRows(); };
+
+async function showHistory(key) {
+  const h = await api(`/api/history?kind=${state.kind}&key=${encodeURIComponent(key)}`);
+  if (!h.length) return;
+  const last = h[h.length-1].data;
+  const tracked = ["ca","pa","value","wage","avg_rating","goals","apps"].filter(k => h.some(x => x.data[k] != null));
+  let html = `<h2>${esc(last.name || key)}</h2><div class="grid">` +
+    Object.entries(last).map(([k,v]) => { const [txt] = fmt(k, v); return `<div><span class="muted">${esc(LABELS[k]||k)}</span><b class="${ATTR_HINT.has(k)&&typeof v==="number"?attrClass(v):""}">${esc(txt)}</b></div>`; }).join("") + "</div>";
+  if (h.length > 1 && tracked.length) {
+    html += `<h3>Verlauf (${h.length} Schnappschüsse)</h3><table><tr><th>Spieldatum</th><th>Import</th>${tracked.map(k=>`<th>${LABELS[k]||k}</th>`).join("")}</tr>` +
+      h.map(x => `<tr><td>${esc(x.game_date||"")}</td><td class="muted">${esc(x.imported_at)}</td>${tracked.map(k => `<td class="num">${esc(fmt(k, x.data[k])[0])}</td>`).join("")}</tr>`).join("") + "</table>";
+  }
+  $("#dlgBody").innerHTML = html; $("#dlg").showModal();
+}
+
+async function showImports() {
+  const imps = await api("/api/imports");
+  $("#dlgBody").innerHTML = "<h2>Importe</h2><table><tr><th>#</th><th>Datei</th><th>Art</th><th>Zeilen</th><th>Spieldatum</th><th>Importiert</th><th></th></tr>" +
+    imps.map(i => `<tr><td>${i.id}</td><td>${esc(i.file)}</td><td>${esc(i.kind)}</td><td class="num">${i.row_count}</td><td>${esc(i.game_date||"")}</td><td class="muted">${esc(i.imported_at)}</td><td><button class="small" onclick="delImport(${i.id})">löschen</button></td></tr>`).join("") + "</table>";
+  $("#dlg").showModal();
+}
+async function delImport(id) { if (!confirm("Import #" + id + " löschen?")) return; await fetch("/api/imports/" + id, { method:"DELETE" }); showImports(); loadKinds(); }
+
+const drop = $("#drop");
+drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", async e => {
+  e.preventDefault(); drop.classList.remove("over");
+  for (const f of e.dataTransfer.files) {
+    const r = await fetch("/api/upload?filename=" + encodeURIComponent(f.name), { method:"POST", body:f });
+    const j = await r.json();
+    const d = document.createElement("div"); d.textContent = j.text || j.error; $("#log").prepend(d);
+  }
+  loadKinds();
+});
+
+// Live-Aktualisierung, wenn der Watcher neue Dateien importiert
+let lastImport = null;
+async function poll() {
+  try { const imps = await api("/api/imports"); const top = imps[0]?.id ?? null;
+    if (lastImport !== null && top !== lastImport) loadKinds(); lastImport = top; } catch {}
+}
+setInterval(poll, 5000); poll();
+loadKinds();
+</script>
+</body>
+</html>
